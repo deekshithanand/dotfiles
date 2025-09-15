@@ -165,4 +165,3 @@ case ":$PATH:" in
 esac
 # pnpm end
 source <(kubectl completion zsh)
-alias dotf='/usr/bin/git --git-dir=/home/danand/.dotfiles/ --work-tree=/home/danand'
