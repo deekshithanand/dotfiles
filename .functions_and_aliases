@@ -5,3 +5,7 @@ alias lla='ls -la'
 alias lt='ls --tree'
 
 alias pn=pnpm
+
+function dotf {
+   /usr/bin/git --git-dir=$HOME/.dotfiles/ --work-tree=$HOME $@
+}
