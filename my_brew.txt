@@ -1,0 +1,11 @@
+broot
+deno
+fd
+forgit
+gemini-cli
+lazydocker
+lazygit
+lsd
+qwen-code
+starship
+zoxide
