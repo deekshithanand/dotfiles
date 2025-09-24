@@ -6,10 +6,6 @@ alias lt='ls --tree'
 
 alias pn=pnpm
 
-# Replication if in case of conflict
-# git clone --separate-git-dir=$HOME/.my-dotfiles https://github.com/Siilwyn/my-dotfiles.git my-dotfiles-tmp
-# rsync --recursive --verbose --exclude '.git' my-dotfiles-tmp/ $HOME/
-# rm --recursive my-dotfiles-tmp
 
 function dotf {
    /usr/bin/git --git-dir=$HOME/.dotfiles/ --work-tree=$HOME $@
