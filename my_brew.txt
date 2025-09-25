@@ -1,0 +1,16 @@
+broot
+cmatrix
+fastfetch
+forgit
+gemini-cli
+git-delta
+lsd
+neovim
+pnpm
+ripgrep
+starship
+tmux
+wget
+zoxide
+zsh-autosuggestions
+zsh-syntax-highlighting
