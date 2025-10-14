@@ -10,3 +10,7 @@ alias pn=pnpm
 function dotf {
    /usr/bin/git --git-dir=$HOME/.dotfiles/ --work-tree=$HOME $@
 }
+
+tm() {
+  tmux -f ~/.tmux.conf new-session "$@"
+}

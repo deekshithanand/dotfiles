@@ -43,3 +43,20 @@ source /opt/homebrew/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 
 #Forgit
 [ -f $HOMEBREW_PREFIX/share/forgit/forgit.plugin.zsh ] && source $HOMEBREW_PREFIX/share/forgit/forgit.plugin.zsh
+# The next line updates PATH for the Google Cloud SDK.
+if [ -f '/Users/deanand/Downloads/google-cloud-sdk/path.zsh.inc' ]; then . '/Users/deanand/Downloads/google-cloud-sdk/path.zsh.inc'; fi
+
+# The next line enables shell command completion for gcloud.
+if [ -f '/Users/deanand/Downloads/google-cloud-sdk/completion.zsh.inc' ]; then . '/Users/deanand/Downloads/google-cloud-sdk/completion.zsh.inc'; fi
+
+# export DISABLE_AUTO_TITLE=true
+
+tmux-window-name() {
+	($TMUX_PLUGIN_MANAGER_PATH/tmux-window-name/scripts/rename_session_windows.py &)
+}
+
+add-zsh-hook chpwd tmux-window-name
+#THIS MUST BE AT THE END OF THE FILE FOR SDKMAN TO WORK!!!
+export SDKMAN_DIR="$HOME/.sdkman"
+[[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
+# JAVA_HOME=/Users/deanand/.sdkman/candidates/java/25-tem
