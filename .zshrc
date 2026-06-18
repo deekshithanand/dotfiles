@@ -1,3 +1,4 @@
+eval "$(~/.local/bin/agent shell-integration zsh)"
 export PATH=$HOME/bin:$HOME/.local/bin:/usr/local/bin:$PATH
 
 export ZSH="$HOME/.oh-my-zsh"
@@ -50,7 +51,20 @@ tmux-window-name() {
 	($TMUX_PLUGIN_MANAGER_PATH/tmux-window-name/scripts/rename_session_windows.py &)
 }
 
-add-zsh-hook chpwd tmux-window-name
+# add-zsh-hook chpwd tmux-window-name
 #THIS MUST BE AT THE END OF THE FILE FOR SDKMAN TO WORK!!!
 export SDKMAN_DIR="$HOME/.sdkman"
 [[ -s "$HOME/.sdkman/bin/sdkman-init.sh" ]] && source "$HOME/.sdkman/bin/sdkman-init.sh"
+
+# pnpm
+export PNPM_HOME="/Users/deanand/Library/pnpm"
+case ":$PATH:" in
+  *":$PNPM_HOME:"*) ;;
+  *) export PATH="$PNPM_HOME:$PATH" ;;
+esac
+# pnpm end
+export PATH="/Library/Frameworks/Python.framework/Versions/3.13/bin:$PATH"
+
+
+# Load secrets
+[[ -f ~/.secrets ]] && source ~/.secrets

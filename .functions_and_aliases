@@ -5,7 +5,7 @@ alias lla='ls -la'
 alias lt='ls --tree'
 
 alias pn=pnpm
-
+alias ns=nest
 
 function dotf {
    /usr/bin/git --git-dir=$HOME/.dotfiles/ --work-tree=$HOME $@
@@ -14,3 +14,238 @@ function dotf {
 tm() {
   tmux -f ~/.tmux.conf new-session "$@"
 }
+
+gitswitch() {
+  case "$1" in
+    work|w)
+      git config --global user.email "deanand@paloaltonetworks.com"
+      git config --global user.name "deanand"
+      echo "Switched to work: deanand@paloaltonetworks.com"
+      ;;
+    personal|p)
+      git config --global user.email "deekshith.anand14@gmail.com"
+      git config --global user.name "deekshithanand"
+      echo "Switched to personal: deekshithanand (deekshith.anand14@gmail.com)"
+      ;;
+    *)
+      echo "Current: $(git config --global user.name) <$(git config --global user.email)>"
+      echo ""
+      echo "Usage: gitswitch [work|w|personal|p]"
+      echo "  work|w      → deanand@paloaltonetworks.com"
+      echo "  personal|p  → deekshithanand"
+      ;;
+  esac
+}
+
+
+
+_driftlogs_parse_time() {
+	local input="$1"
+	if [[ "$input" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2} ]]; then
+		echo "$input"
+	elif [[ "$input" =~ ^([0-9]+)m$ ]]; then
+		local val="${input%m}"
+		date -u -v-"${val}M" +%Y-%m-%dT%H:%M:%SZ
+	elif [[ "$input" =~ ^([0-9]+)h$ ]]; then
+		local val="${input%h}"
+		date -u -v-"${val}H" +%Y-%m-%dT%H:%M:%SZ
+	elif [[ "$input" =~ ^([0-9]+)d$ ]]; then
+		local val="${input%d}"
+		date -u -v-"${val}d" +%Y-%m-%dT%H:%M:%SZ
+	else
+		echo "$input"
+	fi
+}
+
+driftlogs () {
+	local ENV="dev"
+	local PINO_OPTS=""
+	local SEARCH_TERM=""
+	local START_TIME=""
+	local END_TIME=""
+	local TRACE_FRESHNESS="1d"
+
+	while [[ "$#" -gt 0 ]]; do
+		case "$1" in
+			-e | --env)
+				ENV="$2"
+				shift 2 ;;
+			-p | --pino)
+				PINO_OPTS="$2"
+				shift 2 ;;
+			-s | --search)
+				SEARCH_TERM="$2"
+				shift 2 ;;
+			--start)
+				START_TIME="$2"
+				shift 2 ;;
+			--end)
+				END_TIME="$2"
+				shift 2 ;;
+			--freshness)
+				TRACE_FRESHNESS="$2"
+				shift 2 ;;
+			-h | --help | help)
+				cat <<'HELP'
+Drift Management Service Log Utility
+
+USAGE:
+    driftlogs [OPTIONS] [COMMAND]
+
+OPTIONS:
+    -e, --env ENV         Environment: dev (default), stage, prod
+    -p, --pino FLAGS      Pass flags to pino-pretty (e.g., '-l -t')
+    -s, --search TERM     Filter logs containing search term (case-insensitive)
+    --start TIME          Start time (RFC3339 or relative: 1h, 30m, 2d)
+    --end TIME            End time (RFC3339 or relative, default: now)
+    --freshness DURATION  Lookback period for trace queries (default: 1d)
+    -h, --help            Show this help message
+
+COMMANDS:
+    tail                  Live tail logs (Ctrl+C to stop)
+    trace <ID>            Fetch logs by traceId
+    <TIME>                Fetch logs from last TIME (e.g., 5m, 1h, 2d)
+    <NUMBER>              Fetch last N log entries (e.g., 100)
+
+TIME FORMATS:
+    Relative:   5m (minutes), 2h (hours), 1d (days)
+    Absolute:   2024-01-15T10:30:00Z (RFC3339)
+
+EXAMPLES:
+    driftlogs                         # Last 5 minutes of logs
+    driftlogs 1h                      # Last hour of logs
+    driftlogs 100                     # Last 100 log entries
+    driftlogs -e prod 1h              # Last hour from prod
+    driftlogs -s "error" 30m          # Search for "error" in last 30m
+    driftlogs -s "userId=123"         # Search for specific user
+    driftlogs --start 2h --end 1h     # Logs between 2h ago and 1h ago
+    driftlogs --start 2024-01-15T10:00:00Z --end 2024-01-15T11:00:00Z
+    driftlogs trace abc123            # Logs with traceId=abc123
+    driftlogs trace abc123 --freshness 7d  # Trace with 7-day lookback
+    driftlogs -e stage tail           # Live tail stage logs
+    driftlogs tail -s "error"         # Live tail filtering for errors
+    driftlogs -p '-l -t' 10m          # Custom pino-pretty flags
+
+ENVIRONMENT VARIABLES:
+    TRACE_FRESHNESS       Default lookback for trace queries (default: 1d)
+HELP
+				return 0 ;;
+			*)
+				break ;;
+		esac
+	done
+
+	local COLOR_FLAG="--colorize"
+	if [[ ! -t 1 ]]; then
+		COLOR_FLAG="--no-colorize"
+	fi
+
+	local PROJECT CLUSTER
+	case "$ENV" in
+		prod)
+			PROJECT="itp-ent-inframicrosvcs"
+			CLUSTER="gke-itp-inframicrosvcs-us-central1" ;;
+		stage|stg)
+			PROJECT="its-ent-inframicrosvcs"
+			CLUSTER="gke-its-inframicrosvcs-us-central1" ;;
+		dev|*)
+			PROJECT="itd-ent-inframicrosvcs"
+			CLUSTER="gke-itd-inframicrosvcs-us-central1"
+			ENV="dev" ;;
+	esac
+
+	if ! command -v pino-pretty &> /dev/null; then
+		echo "Error: pino-pretty is not installed. Install with: npm install -g pino-pretty" >&2
+		return 1
+	fi
+
+	local CONTAINER="drift-management-service"
+	local BASE_FILTER="resource.labels.container_name=\"$CONTAINER\" AND resource.labels.cluster_name=\"$CLUSTER\""
+	local LOG_EXTRACTOR='.[] | select(.jsonPayload) | .jsonPayload + {time: (.timestamp // .jsonPayload.time)}'
+
+	local SEARCH_FILTER=""
+	if [[ -n "$SEARCH_TERM" ]]; then
+		SEARCH_FILTER=" AND (textPayload:\"$SEARCH_TERM\" OR jsonPayload.msg:\"$SEARCH_TERM\" OR jsonPayload.message:\"$SEARCH_TERM\" OR jsonPayload.context:\"$SEARCH_TERM\" OR jsonPayload.err:\"$SEARCH_TERM\")"
+	fi
+
+	echo -e "\u001b[90mTargeting: $ENV ($PROJECT)\u001b[0m" >&2
+	[[ -n "$SEARCH_TERM" ]] && echo -e "\u001b[90mSearch filter: $SEARCH_TERM\u001b[0m" >&2
+
+	case "$1" in
+		tail)
+			echo "Tailing logs (Ctrl+C to stop)..." >&2
+			local LAST_TS=$(date -u -v-1M +%Y-%m-%dT%H:%M:%SZ)
+			while true; do
+				local RAW_LOGS=$(gcloud logging read "$BASE_FILTER$SEARCH_FILTER AND timestamp > \"$LAST_TS\"" --project="$PROJECT" --format="json" --quiet)
+				if [[ -n "$RAW_LOGS" && "$RAW_LOGS" != "[]" ]]; then
+					echo "$RAW_LOGS" | jq -cr "$LOG_EXTRACTOR" | pino-pretty $COLOR_FLAG $PINO_OPTS
+					local NEW_TS=$(echo "$RAW_LOGS" | jq -r '.[0].timestamp' 2>/dev/null)
+					[[ -n "$NEW_TS" ]] && LAST_TS=$NEW_TS
+				fi
+				sleep 2
+			done ;;
+
+		trace)
+			if [[ -z "$2" ]]; then
+				echo "Error: Provide Trace ID. Usage: driftlogs trace <traceId>" >&2
+				return 1
+			fi
+			local TRACE_ID="$2"
+			shift 2
+			while [[ "$#" -gt 0 ]]; do
+				case "$1" in
+					--freshness) TRACE_FRESHNESS="$2"; shift 2 ;;
+					*) break ;;
+				esac
+			done
+			local FRESHNESS="${TRACE_FRESHNESS:-1d}"
+			echo -e "\u001b[90mSearching traces (freshness: $FRESHNESS)...\u001b[0m" >&2
+			gcloud logging read "$BASE_FILTER$SEARCH_FILTER AND jsonPayload.traceId=\"$TRACE_ID\"" \
+				--project="$PROJECT" \
+				--freshness="$FRESHNESS" \
+				--format="json" | jq -cr "$LOG_EXTRACTOR" | pino-pretty $COLOR_FLAG $PINO_OPTS ;;
+
+		*)
+			if [[ -n "$START_TIME" ]]; then
+				local PARSED_START=$(_driftlogs_parse_time "$START_TIME")
+				local TIME_FILTER="timestamp >= \"$PARSED_START\""
+				if [[ -n "$END_TIME" ]]; then
+					local PARSED_END=$(_driftlogs_parse_time "$END_TIME")
+					TIME_FILTER="$TIME_FILTER AND timestamp <= \"$PARSED_END\""
+					echo -e "\u001b[90mTime window: $PARSED_START to $PARSED_END\u001b[0m" >&2
+				else
+					echo -e "\u001b[90mTime window: $PARSED_START to now\u001b[0m" >&2
+				fi
+				gcloud logging read "$BASE_FILTER$SEARCH_FILTER AND $TIME_FILTER" \
+					--project="$PROJECT" \
+					--format="json" | jq -cr "$LOG_EXTRACTOR" | pino-pretty $COLOR_FLAG $PINO_OPTS
+			else
+				local LIMIT_FLAG=""
+				local TIME_VAL="5"
+				local UNIT="M"
+
+				if [[ "$1" =~ ^[0-9]+$ ]]; then
+					LIMIT_FLAG="--limit=$1"
+				elif [[ -n "$1" ]]; then
+					TIME_VAL=$(echo "$1" | grep -oE '[0-9]+')
+					local RAW_UNIT=$(echo "$1" | grep -oE '[a-zA-Z]+')
+					[[ "$RAW_UNIT" == "d" ]] && UNIT="d"
+					[[ "$RAW_UNIT" == "h" ]] && UNIT="H"
+					[[ -z "$RAW_UNIT" || "$RAW_UNIT" == "m" ]] && UNIT="M"
+				fi
+
+				if [[ -z "$LIMIT_FLAG" ]]; then
+					local TS=$(date -u -v-"${TIME_VAL}${UNIT}" +%Y-%m-%dT%H:%M:%SZ)
+					gcloud logging read "$BASE_FILTER$SEARCH_FILTER AND timestamp >= \"$TS\"" \
+						--project="$PROJECT" \
+						--format="json" | jq -cr "$LOG_EXTRACTOR" | pino-pretty $COLOR_FLAG $PINO_OPTS
+				else
+					gcloud logging read "$BASE_FILTER$SEARCH_FILTER" \
+						--project="$PROJECT" \
+						$LIMIT_FLAG \
+						--format="json" | jq -cr "$LOG_EXTRACTOR" | pino-pretty $COLOR_FLAG $PINO_OPTS
+				fi
+			fi ;;
+	esac
+}
+
